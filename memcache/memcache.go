@@ -596,6 +596,50 @@ func (c *Client) prepend(rw *bufio.ReadWriter, item *Item) error {
 	return c.populateOne(rw, "prepend", item)
 }
 
+// MemoryLimit config update without restart memcached server instance
+// memoryLimit: unit is MB
+func (c *Client) ConfigSetMemoryLimit(memoryLimit int32) error {
+	statsFun := func(addr net.Addr) error {
+		return c.withAddrRw(addr, func(rw *bufio.ReadWriter) error {
+			body, err := writeReadLine(rw, "cache_memlimit %d\r\n", memoryLimit)
+			if err != nil {
+				return err
+			}
+			fmt.Println(string(body))
+			return nil
+		})
+	}
+	c.selector.Each(statsFun)
+	return nil
+}
+
+// Stats get all instances stats
+// return value as addr -> stats key -> stats value
+func (c *Client) Stats() (map[string]map[string]string, error) {
+	result := make(map[string]map[string]string)
+	statsFun := func(addr net.Addr) error {
+		return c.withAddrRw(addr, func(rw *bufio.ReadWriter) error {
+			body, err := writeReadAllLine(rw, "stats\r\n")
+			if err != nil {
+				return err
+			}
+			addrString := addr.String()
+			result[addrString] = make(map[string]string)
+			lineAll := string(body)
+			lines := strings.Split(lineAll, "\r\n")
+			for i := range lines {
+				if strings.HasPrefix(lines[i], "STAT") {
+					kv := strings.Split(lines[i], " ")
+					result[addrString][kv[1]] = kv[2]
+				}
+			}
+			return nil
+		})
+	}
+	c.selector.Each(statsFun)
+	return result, nil
+}
+
 // CompareAndSwap writes the given item that was previously returned
 // by Get, if the value was neither modified or evicted between the
 // Get and the CompareAndSwap calls. The item's Key should not change
@@ -662,6 +706,19 @@ func writeReadLine(rw *bufio.ReadWriter, format string, args ...interface{}) ([]
 	}
 	line, err := rw.ReadSlice('\n')
 	return line, err
+}
+
+func writeReadAllLine(rw *bufio.ReadWriter, format string, args ...interface{}) ([]byte, error) {
+	_, err := fmt.Fprintf(rw, format, args...)
+	if err != nil {
+		return nil, err
+	}
+	if err := rw.Flush(); err != nil {
+		return nil, err
+	}
+	buf := &bytes.Buffer{}
+	rw.WriteTo(buf)
+	return buf.Bytes(), err
 }
 
 func writeExpectf(rw *bufio.ReadWriter, expect []byte, format string, args ...interface{}) error {
