@@ -49,6 +49,29 @@ func TestLocalhost(t *testing.T) {
 	testWithClient(t, New(testServer))
 }
 
+func TestLocalStats(t *testing.T) {
+	if !setup(t) {
+		return
+	}
+	client := New(testServer)
+	client.Ping()
+	stats, err := client.Stats()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stats) < 1 {
+		t.Fatal("stats is empty")
+	}
+	for addr, _ := range stats {
+		if len(stats[addr]) < 6 {
+			t.Fatal("stats is empty")
+		}
+	}
+
+	err1 := client.ConfigSetMemoryLimit(32)
+	fmt.Println(err1)
+}
+
 // Run the memcached binary as a child process and connect to its unix socket.
 func TestUnixSocket(t *testing.T) {
 	sock := fmt.Sprintf("/tmp/test-gomemcache-%d.sock", os.Getpid())
